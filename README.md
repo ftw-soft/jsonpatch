@@ -1,9 +1,5 @@
 # jsonpatch
 
-[![Build Status](https://travis-ci.org/gomodules/jsonpatch.svg?branch=master)](https://travis-ci.org/gomodules/jsonpatch)
-[![Go Report Card](https://goreportcard.com/badge/gomodules.xyz/jsonpatch "Go Report Card")](https://goreportcard.com/report/gomodules.xyz/jsonpatch)
-[![GoDoc](https://godoc.org/gomodules.xyz/jsonpatch/v2?status.svg "GoDoc")](https://godoc.org/gomodules.xyz/jsonpatch/v2)
-
 As per http://jsonpatch.com JSON Patch is specified in RFC 6902 from the IETF.
 
 JSON Patch allows you to generate JSON that describes changes you want to make to a document, so you don't have to send the whole doc. JSON Patch format is supported by HTTP PATCH method, allowing for standards based partial updates via REST APIs.
@@ -11,7 +7,7 @@ JSON Patch allows you to generate JSON that describes changes you want to make t
 ## Usage ##
 
 ```go
-import "gomodules.xyz/jsonpatch/v2"
+import "github.com/miktwon/jsonpatch"
 ```
 
 I tried some of the other "jsonpatch" go implementations, but none of them could diff two json documents and generate format like jsonpatch.com specifies. Here's an example of the patch format:
@@ -33,20 +29,21 @@ package main
 
 import (
 	"fmt"
-	"gomodules.xyz/jsonpatch/v2"
+	
+	"github.com/miktwon/jsonpatch"
 )
 
 var simpleA = `{"a":100, "b":200, "c":"hello"}`
 var simpleB = `{"a":100, "b":200, "c":"goodbye"}`
 
 func main() {
-	patch, e := jsonpatch.CreatePatch([]byte(simpleA), []byte(simpleB))
+	patch, e := jsonpatch.CreatePatchFromBytes([]byte(simpleA), []byte(simpleB))
 	if e != nil {
 		fmt.Printf("Error creating JSON patch:%v", e)
 		return
 	}
 	for _, operation := range patch {
-		fmt.Printf("%s\n", operation.Json())
+		fmt.Printf("%s\n", operation)
 	}
 }
 ```

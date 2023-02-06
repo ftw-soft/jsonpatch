@@ -10,24 +10,26 @@ import (
 
 var errBadJSONDoc = fmt.Errorf("invalid JSON Document")
 
-type JsonPatchOperation = Operation
-
 type Operation struct {
-	Operation string      `json:"op"`
-	Path      string      `json:"path"`
-	Value     interface{} `json:"value,omitempty"`
-}
-
-func (j *Operation) Json() string {
-	b, _ := json.Marshal(j)
-	return string(b)
+	Operation string `json:"op"`
+	Path      string `json:"path"`
+	Value     any    `json:"value,omitempty"`
 }
 
 func (j *Operation) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
-	b.WriteString("{")
-	b.WriteString(fmt.Sprintf(`"op":"%s"`, j.Operation))
-	b.WriteString(fmt.Sprintf(`,"path":"%s"`, j.Path))
+	b.WriteByte('{')
+
+	// operation
+	b.WriteString(`"op":"`)
+	b.WriteString(j.Operation)
+	b.WriteByte('"')
+
+	// patch
+	b.WriteString(`,"path":"`)
+	b.WriteString(j.Path)
+	b.WriteByte('"')
+
 	// Consider omitting Value for non-nullable operations.
 	if j.Value != nil || j.Operation == "replace" || j.Operation == "add" {
 		v, err := json.Marshal(j.Value)
@@ -37,7 +39,7 @@ func (j *Operation) MarshalJSON() ([]byte, error) {
 		b.WriteString(`,"value":`)
 		b.Write(v)
 	}
-	b.WriteString("}")
+	b.WriteByte('}')
 	return b.Bytes(), nil
 }
 
@@ -47,19 +49,24 @@ func (a ByPath) Len() int           { return len(a) }
 func (a ByPath) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByPath) Less(i, j int) bool { return a[i].Path < a[j].Path }
 
-func NewOperation(op, path string, value interface{}) Operation {
+func NewOperation(op, path string, value any) Operation {
 	return Operation{Operation: op, Path: path, Value: value}
 }
 
-// CreatePatch creates a patch as specified in http://jsonpatch.com/
+// CreatePatch accepts already prepared objects. Look at CreatePatchFromBytes
+func CreatePatch(a, b any) ([]Operation, error) {
+	return handleValues(a, b, "", []Operation{})
+}
+
+// CreatePatchFromBytes creates a patch as specified in http://jsonpatch.com/
 //
 // 'a' is original, 'b' is the modified document. Both are to be given as json encoded content.
 // The function will return an array of JsonPatchOperations
 //
 // An error will be returned if any of the two documents are invalid.
-func CreatePatch(a, b []byte) ([]Operation, error) {
-	var aI interface{}
-	var bI interface{}
+func CreatePatchFromBytes(a, b []byte) ([]Operation, error) {
+	var aI any
+	var bI any
 	err := json.Unmarshal(a, &aI)
 	if err != nil {
 		return nil, errBadJSONDoc
@@ -68,13 +75,14 @@ func CreatePatch(a, b []byte) ([]Operation, error) {
 	if err != nil {
 		return nil, errBadJSONDoc
 	}
-	return handleValues(aI, bI, "", []Operation{})
+
+	return CreatePatch(aI, bI)
 }
 
 // Returns true if the values matches (must be json types)
 // The types of the values must match, otherwise it will always return false
-// If two map[string]interface{} are given, all elements must match.
-func matchesValue(av, bv interface{}) bool {
+// If two map[string]any are given, all elements must match.
+func matchesValue(av, bv any) bool {
 	if reflect.TypeOf(av) != reflect.TypeOf(bv) {
 		return false
 	}
@@ -94,8 +102,8 @@ func matchesValue(av, bv interface{}) bool {
 		if ok && bt == at {
 			return true
 		}
-	case map[string]interface{}:
-		bt, ok := bv.(map[string]interface{})
+	case map[string]any:
+		bt, ok := bv.(map[string]any)
 		if !ok {
 			return false
 		}
@@ -110,8 +118,8 @@ func matchesValue(av, bv interface{}) bool {
 			}
 		}
 		return true
-	case []interface{}:
-		bt, ok := bv.([]interface{})
+	case []any:
+		bt, ok := bv.([]any)
 		if !ok {
 			return false
 		}
@@ -144,7 +152,7 @@ func matchesValue(av, bv interface{}) bool {
 
 var rfc6901Encoder = strings.NewReplacer("~", "~0", "/", "~1")
 
-func makePath(path string, newPart interface{}) string {
+func makePath(path string, newPart any) string {
 	key := rfc6901Encoder.Replace(fmt.Sprintf("%v", newPart))
 	if path == "" {
 		return "/" + key
@@ -156,7 +164,7 @@ func makePath(path string, newPart interface{}) string {
 }
 
 // diff returns the (recursive) difference between a and b as an array of JsonPatchOperations.
-func diff(a, b map[string]interface{}, path string, patch []Operation) ([]Operation, error) {
+func diff(a, b map[string]any, path string, patch []Operation) ([]Operation, error) {
 	for key, bv := range b {
 		p := makePath(path, key)
 		av, ok := a[key]
@@ -184,7 +192,7 @@ func diff(a, b map[string]interface{}, path string, patch []Operation) ([]Operat
 	return patch, nil
 }
 
-func handleValues(av, bv interface{}, p string, patch []Operation) ([]Operation, error) {
+func handleValues(av, bv any, p string, patch []Operation) ([]Operation, error) {
 	{
 		at := reflect.TypeOf(av)
 		bt := reflect.TypeOf(bv)
@@ -199,8 +207,8 @@ func handleValues(av, bv interface{}, p string, patch []Operation) ([]Operation,
 
 	var err error
 	switch at := av.(type) {
-	case map[string]interface{}:
-		bt := bv.(map[string]interface{})
+	case map[string]any:
+		bt := bv.(map[string]any)
 		patch, err = diff(at, bt, p, patch)
 		if err != nil {
 			return nil, err
@@ -209,8 +217,8 @@ func handleValues(av, bv interface{}, p string, patch []Operation) ([]Operation,
 		if !matchesValue(av, bv) {
 			patch = append(patch, NewOperation("replace", p, bv))
 		}
-	case []interface{}:
-		bt := bv.([]interface{})
+	case []any:
+		bt := bv.([]any)
 		if isSimpleArray(at) && isSimpleArray(bt) {
 			patch = append(patch, compareEditDistance(at, bt, p)...)
 		} else {
@@ -235,7 +243,7 @@ func handleValues(av, bv interface{}, p string, patch []Operation) ([]Operation,
 	return patch, nil
 }
 
-func isBasicType(a interface{}) bool {
+func isBasicType(a any) bool {
 	switch a.(type) {
 	case string, float64, bool:
 	default:
@@ -244,7 +252,7 @@ func isBasicType(a interface{}) bool {
 	return true
 }
 
-func isSimpleArray(a []interface{}) bool {
+func isSimpleArray(a []any) bool {
 	for i := range a {
 		switch a[i].(type) {
 		case string, float64, bool:
@@ -273,7 +281,7 @@ func isSimpleArray(a []interface{}) bool {
 
 // https://en.wikipedia.org/wiki/Wagner%E2%80%93Fischer_algorithm
 // Adapted from https://github.com/texttheater/golang-levenshtein
-func compareEditDistance(s, t []interface{}, p string) []Operation {
+func compareEditDistance(s, t []any, p string) []Operation {
 	m := len(s)
 	n := len(t)
 
@@ -309,7 +317,7 @@ func min(x int, y int) int {
 	return x
 }
 
-func backtrace(s, t []interface{}, p string, i int, j int, matrix [][]int) []Operation {
+func backtrace(s, t []any, p string, i int, j int, matrix [][]int) []Operation {
 	if i > 0 && matrix[i-1][j]+1 == matrix[i][j] {
 		op := NewOperation("remove", makePath(p, i-1), nil)
 		return append([]Operation{op}, backtrace(s, t, p, i-1, j, matrix)...)
