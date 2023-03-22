@@ -1,9 +1,10 @@
-module github.com/miktwon/jsonpatch
+module github.com/ftw-soft/jsonpatch
 
 go 1.19
 
 require (
 	github.com/evanphx/json-patch v0.5.2
+	github.com/miktwon/jsonpatch v0.0.1
 	github.com/stretchr/testify v1.3.0
 )
 

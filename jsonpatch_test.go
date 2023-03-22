@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	jp "github.com/evanphx/json-patch"
+	"github.com/miktwon/jsonpatch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -408,4 +409,71 @@ func TestMarshalNonNullableValue(t *testing.T) {
 		Path:      "/a1",
 	}
 	require.JSONEq(t, `{"op":"remove", "path":"/a1"}`, toJSON(p1))
+}
+
+func Benchmark_JsonDiffer(b *testing.B) {
+	var testCases = []struct {
+		name string
+		src  string
+		dst  string
+	}{
+		{"Simple:OneNullReplace", simplef, simpleG},
+		{"Simple:Same", simpleA, simpleA},
+		{"Simple:OneStringReplace", simpleA, simpleB},
+		{"Simple:OneIntReplace", simpleA, simpleC},
+		{"Simple:OneAdd", simpleA, simpleD},
+		{"Simple:OneRemove", simpleA, simpleE},
+		{"Simple:VsEmpty", simpleA, empty},
+		// array types
+		{"Array:Same", arraySrc, arraySrc},
+		{"Array:BoolReplace", arraySrc, arrayDst},
+		{"Array:AlmostSame", `{"Lines":[1,2,3,4,5,6,7,8,9,10]}`, `{"Lines":[2,3,4,5,6,7,8,9,10,11]}`},
+		{"Array:Remove", `{"x":["A", "B", "C"]}`, `{"x":["D"]}`},
+		{"Array:EditDistance", `{"letters":["A","B","C","D","E","F","G","H","I","J","K"]}`, `{"letters":["L","M","N"]}`},
+		// complex types
+		{"Complex:Same", complexBase, complexBase},
+		{"Complex:OneStringReplaceInArray", complexBase, complexA},
+		{"Complex:OneIntReplace", complexBase, complexB},
+		{"Complex:OneAdd", complexBase, complexC},
+		{"Complex:OneAddToArray", complexBase, complexC},
+		{"Complex:VsEmpty", complexBase, empty},
+		// geojson
+		{"GeoJson:PointLineStringReplace", point, lineString},
+		{"GeoJson:LineStringPointReplace", lineString, point},
+		// HyperComplex
+		{"HyperComplex:Same", hyperComplexBase, hyperComplexBase},
+		{"HyperComplex:BoolReplace", hyperComplexBase, hyperComplexA},
+		// SuperComplex
+		{"SuperComplex:Same", superComplexBase, superComplexBase},
+		{"SuperComplex:BoolReplace", superComplexBase, superComplexA},
+		// map
+		{"Kubernetes:Annotations", oldDeployment, newDeployment},
+		// crd with nested object
+		{"Nested Member Object", oldNestedObj, newNestedObj},
+		// array with different order
+		{"Different Array", oldArray, newArray},
+		{"Array at root", `[{"asdf":"qwerty"}]`, `[{"asdf":"bla"},{"asdf":"zzz"}]`},
+		{"Empty array at root", `[]`, `[{"asdf":"bla"},{"asdf":"zzz"}]`},
+		{"Null Key uses replace operation", nullKeyA, nullKeyB},
+	}
+
+	for _, testCase := range testCases {
+		src := []byte(testCase.src)
+		dst := []byte(testCase.dst)
+
+		b.Run("NoReflect:"+testCase.name, func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				_, _ = CreatePatchFromBytes(src, dst)
+			}
+		})
+		b.Run("WithReflect:"+testCase.name, func(b *testing.B) {
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				_, _ = jsonpatch.CreatePatchFromBytes(src, dst)
+			}
+		})
+	}
 }

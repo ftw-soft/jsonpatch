@@ -7,7 +7,7 @@ JSON Patch allows you to generate JSON that describes changes you want to make t
 ## Usage ##
 
 ```go
-import "github.com/miktwon/jsonpatch"
+import "github.com/ftw-soft/jsonpatch"
 ```
 
 I tried some of the other "jsonpatch" go implementations, but none of them could diff two json documents and generate format like jsonpatch.com specifies. Here's an example of the patch format:
@@ -30,7 +30,7 @@ package main
 import (
 	"fmt"
 	
-	"github.com/miktwon/jsonpatch"
+	"github.com/ftw-soft/jsonpatch"
 )
 
 var simpleA = `{"a":100, "b":200, "c":"hello"}`
