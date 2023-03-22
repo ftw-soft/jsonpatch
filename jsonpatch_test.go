@@ -408,5 +408,4 @@ func TestMarshalNonNullableValue(t *testing.T) {
 		Path:      "/a1",
 	}
 	require.JSONEq(t, `{"op":"remove", "path":"/a1"}`, toJSON(p1))
-
 }

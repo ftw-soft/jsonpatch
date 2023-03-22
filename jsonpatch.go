@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -83,9 +82,6 @@ func CreatePatchFromBytes(a, b []byte) ([]Operation, error) {
 // The types of the values must match, otherwise it will always return false
 // If two map[string]any are given, all elements must match.
 func matchesValue(av, bv any) bool {
-	if reflect.TypeOf(av) != reflect.TypeOf(bv) {
-		return false
-	}
 	switch at := av.(type) {
 	case string:
 		bt, ok := bv.(string)
@@ -192,14 +188,31 @@ func diff(a, b map[string]any, path string, patch []Operation) ([]Operation, err
 	return patch, nil
 }
 
+func typesAreCompatible(av, bv any) bool {
+	switch av.(type) {
+	case map[string]any:
+		if _, ok := bv.(map[string]any); ok {
+			return true
+		}
+	case string, float64, bool:
+		switch bv.(type) {
+		case string, float64, bool:
+			return true
+		}
+	case []any:
+		if _, ok := bv.([]any); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func handleValues(av, bv any, p string, patch []Operation) ([]Operation, error) {
 	{
-		at := reflect.TypeOf(av)
-		bt := reflect.TypeOf(bv)
-		if at == nil && bt == nil {
-			// do nothing
+		if av == nil && bv == nil {
 			return patch, nil
-		} else if at != bt {
+		}
+		if !typesAreCompatible(av, bv) {
 			// If types have changed, replace completely (preserves null in destination)
 			return append(patch, NewOperation("replace", p, bv)), nil
 		}
@@ -254,25 +267,23 @@ func isBasicType(a any) bool {
 
 func isSimpleArray(a []any) bool {
 	for i := range a {
-		switch a[i].(type) {
+		switch av := a[i].(type) {
 		case string, float64, bool:
-		default:
-			val := reflect.ValueOf(a[i])
-			if val.Kind() == reflect.Map {
-				for _, k := range val.MapKeys() {
-					av := val.MapIndex(k)
-					if av.Kind() == reflect.Ptr || av.Kind() == reflect.Interface {
-						if av.IsNil() {
-							continue
-						}
-						av = av.Elem()
-					}
-					if av.Kind() != reflect.String && av.Kind() != reflect.Float64 && av.Kind() != reflect.Bool {
-						return false
-					}
+		case map[string]any:
+			for _, v := range av {
+				if v == nil {
+					continue
 				}
-				return true
+
+				if !isBasicType(v) {
+					return false
+				}
 			}
+
+			return true
+		case []any:
+			return false
+		default:
 			return false
 		}
 	}
@@ -296,7 +307,7 @@ func compareEditDistance(s, t []any, p string) []Operation {
 
 	for j := 1; j <= n; j++ {
 		for i := 1; i <= m; i++ {
-			if reflect.DeepEqual(s[i-1], t[j-1]) {
+			if matchesValue(s[i-1], t[j-1]) {
 				d[i][j] = d[i-1][j-1] // no op required
 			} else {
 				del := d[i-1][j] + 1
