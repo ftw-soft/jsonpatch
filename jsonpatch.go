@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 var errBadJSONDoc = fmt.Errorf("invalid JSON Document")
@@ -148,15 +150,41 @@ func matchesValue(av, bv any) bool {
 
 var rfc6901Encoder = strings.NewReplacer("~", "~0", "/", "~1")
 
-func makePath(path string, newPart any) string {
-	key := rfc6901Encoder.Replace(fmt.Sprintf("%v", newPart))
+var bufferPool = &sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 256))
+	},
+}
+
+func makePathInt(path string, newPart int) string {
+	return makePath(path, strconv.Itoa(newPart))
+}
+
+func makePath(path string, newPart string) string {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	defer bufferPool.Put(buf)
+
+	buf.Reset()
+
 	if path == "" {
-		return "/" + key
+		buf.WriteRune('/')
+		rfc6901Encoder.WriteString(buf, newPart)
+
+		return buf.String()
 	}
+
 	if strings.HasSuffix(path, "/") {
-		return path + key
+		buf.WriteString(path)
+		rfc6901Encoder.WriteString(buf, newPart)
+
+		return buf.String()
 	}
-	return path + "/" + key
+
+	buf.WriteString(path)
+	buf.WriteRune('/')
+	rfc6901Encoder.WriteString(buf, newPart)
+
+	return buf.String()
 }
 
 // diff returns the (recursive) difference between a and b as an array of JsonPatchOperations.
@@ -237,14 +265,14 @@ func handleValues(av, bv any, p string, patch []Operation) ([]Operation, error) 
 		} else {
 			n := min(len(at), len(bt))
 			for i := len(at) - 1; i >= n; i-- {
-				patch = append(patch, NewOperation("remove", makePath(p, i), nil))
+				patch = append(patch, NewOperation("remove", makePathInt(p, i), nil))
 			}
 			for i := n; i < len(bt); i++ {
-				patch = append(patch, NewOperation("add", makePath(p, i), bt[i]))
+				patch = append(patch, NewOperation("add", makePathInt(p, i), bt[i]))
 			}
 			for i := 0; i < n; i++ {
 				var err error
-				patch, err = handleValues(at[i], bt[i], makePath(p, i), patch)
+				patch, err = handleValues(at[i], bt[i], makePathInt(p, i), patch)
 				if err != nil {
 					return nil, err
 				}
@@ -330,20 +358,20 @@ func min(x int, y int) int {
 
 func backtrace(s, t []any, p string, i int, j int, matrix [][]int) []Operation {
 	if i > 0 && matrix[i-1][j]+1 == matrix[i][j] {
-		op := NewOperation("remove", makePath(p, i-1), nil)
+		op := NewOperation("remove", makePathInt(p, i-1), nil)
 		return append([]Operation{op}, backtrace(s, t, p, i-1, j, matrix)...)
 	}
 	if j > 0 && matrix[i][j-1]+1 == matrix[i][j] {
-		op := NewOperation("add", makePath(p, i), t[j-1])
+		op := NewOperation("add", makePathInt(p, i), t[j-1])
 		return append([]Operation{op}, backtrace(s, t, p, i, j-1, matrix)...)
 	}
 	if i > 0 && j > 0 && matrix[i-1][j-1]+1 == matrix[i][j] {
 		if isBasicType(s[0]) {
-			op := NewOperation("replace", makePath(p, i-1), t[j-1])
+			op := NewOperation("replace", makePathInt(p, i-1), t[j-1])
 			return append([]Operation{op}, backtrace(s, t, p, i-1, j-1, matrix)...)
 		}
 
-		p2, _ := handleValues(s[i-1], t[j-1], makePath(p, i-1), []Operation{})
+		p2, _ := handleValues(s[i-1], t[j-1], makePathInt(p, i-1), []Operation{})
 		return append(p2, backtrace(s, t, p, i-1, j-1, matrix)...)
 	}
 	if i > 0 && j > 0 && matrix[i-1][j-1] == matrix[i][j] {
